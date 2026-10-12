@@ -174,15 +174,48 @@ ipcMain.handle('postacim:cancel-share', () => {
 });
 
 // ---------- otomatik güncelleme ----------
+// Akış: açılışta + 4 saatte bir sessiz denetim → yeni sürüm varsa arka
+// planda indirilir → inince "yeniden başlat" diyaloğu. Tepsideki
+// "Güncellemeleri denetle" aynı akışı anında tetikler ve sonucu söyler.
+
+let autoUpdater = null;
+/** elle denetim mi → sonucu (güncel/yeni/hata) diyalogla söyle */
+let manualCheck = false;
 
 function wireUpdater() {
   if (!app.isPackaged) return;
-  const { autoUpdater } = updaterPkg;
+  autoUpdater = updaterPkg.autoUpdater;
   autoUpdater.autoDownload = true;
-  autoUpdater.on('error', () => {
-    /* releases yok (repo henüz açılmamış) / ağ yok — sessiz */
+
+  const say = (type, message, detail) => {
+    void dialog.showMessageBox(win ?? null, { type, message, detail, buttons: ['Tamam'] });
+  };
+
+  autoUpdater.on('error', (err) => {
+    if (manualCheck) {
+      manualCheck = false;
+      say('error', 'Güncelleme denetlenemedi', String(err?.message ?? err));
+    }
+    /* otomatik denetimde (ağ yok / releases yok) sessiz kal */
+  });
+  autoUpdater.on('update-available', (info) => {
+    if (manualCheck) {
+      manualCheck = false;
+      say('info', `Yeni sürüm: ${info.version}`, 'Arka planda indiriliyor — tamamlanınca yeniden başlatma sorulacak.');
+    }
+  });
+  autoUpdater.on('update-not-available', () => {
+    if (manualCheck) {
+      manualCheck = false;
+      say('info', 'postacim güncel', `Sürüm ${app.getVersion()}`);
+    }
+  });
+  autoUpdater.on('download-progress', (p) => {
+    // ilerleme tepsi ipucunda — pencere açmaya değmez
+    if (tray) tray.setToolTip(`postacim — güncelleme indiriliyor ${Math.floor(p.percent)}%`);
   });
   autoUpdater.on('update-downloaded', async (info) => {
+    if (tray) tray.setToolTip('postacim');
     const r = await dialog.showMessageBox(win ?? null, {
       type: 'info',
       buttons: ['Yeniden başlat', 'Sonra'],
@@ -195,7 +228,37 @@ function wireUpdater() {
       autoUpdater.quitAndInstall();
     }
   });
+
   void autoUpdater.checkForUpdates().catch(() => {});
+  setInterval(() => void checkForUpdates(false), 4 * 60 * 60 * 1000);
+}
+
+async function checkForUpdates(manual) {
+  if (!autoUpdater) {
+    if (manual) {
+      void dialog.showMessageBox(win ?? null, {
+        type: 'info',
+        message: 'Geliştirme modu',
+        detail: 'Güncelleme denetimi yalnızca kurulu uygulamada çalışır (npm run dist çıktısı).',
+        buttons: ['Tamam'],
+      });
+    }
+    return;
+  }
+  manualCheck = manual;
+  try {
+    await autoUpdater.checkForUpdates();
+  } catch (err) {
+    manualCheck = false;
+    if (manual) {
+      void dialog.showMessageBox(win ?? null, {
+        type: 'error',
+        message: 'Güncelleme denetlenemedi',
+        detail: String(err?.message ?? err),
+        buttons: ['Tamam'],
+      });
+    }
+  }
 }
 
 async function bootstrap() {
@@ -440,6 +503,7 @@ function createTray() {
     tray.setContextMenu(
       Menu.buildFromTemplate([
         { label: 'Göster', click: () => { if (win) { win.show(); win.focus(); } } },
+        { label: 'Güncellemeleri denetle', click: () => void checkForUpdates(true) },
         { type: 'separator' },
         {
           label: 'Kapatınca tepsiye gizlen',

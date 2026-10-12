@@ -15,8 +15,11 @@ koddur (aynı web paketi, aynı libsodium zincirleri).
 - **Ekran/pencere kaynak seçici** — ekran paylaşımı başlatılırken uygulamanın
   kendi seçim penceresi açılır: ekranlar ve pencereler küçük resimli liste
   hâlinde sunulur, kaynak oradan seçilir.
-- **Otomatik güncelleme** — `electron-updater` ile GitHub Releases üzerinden.
-  Hedef depo **yucOx/postacim-cli**.
+- **Uygulama içinden güncelleme** — açılışta ve 4 saatte bir denetler; yeni
+  sürümü arka planda indirip "yeniden başlat" diye sorar. Tepsi menüsündeki
+  **Güncellemeleri denetle** anında tetikler (güncel/yeni/hata sonucunu
+  söyler, indirme yüzdesi tepsi ipucunda). Kaynak: **yucOx/postacim-cli**
+  Releases.
 - **Sistemle başlatma** ve **"kapatınca tepsiye gizlen"** tercihleri — tepsi
   menüsünden açılıp kapatılır.
 - **Release CI** — `desktop-v*` tag'i üç platformda (Linux/Windows/macOS)
@@ -92,6 +95,7 @@ desktop/
   ("Yine de çalıştır" ile geçilir).
 - **Otomatik güncelleme** — `electron-updater` `yucOx/postacim-cli`
   Releases'ine bağlanır; `desktop-v*` etiketli sürümler oradan gelir.
+  Uygulama içinden: tepsi → Güncellemeleri denetle.
 
 ## Gizlilik notu
 
