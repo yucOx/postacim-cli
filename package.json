@@ -1,0 +1,80 @@
+{
+  "name": "postacim-cli",
+  "productName": "postacim",
+  "version": "0.2.0",
+  "author": { "name": "yucOx", "email": "yucOx@users.noreply.github.com" },
+  "homepage": "https://github.com/yucOx/postacim-cli",
+  "desktopName": "postacim.desktop",
+  "private": true,
+  "description": "postacim masaüstü uygulaması — Electron sarmalayıcı (ince istemci)",
+  "type": "module",
+  "main": "src/main.js",
+  "scripts": {
+    "start": "electron .",
+    "smoke": "electron . --smoke --no-sandbox",
+    "dist": "electron-builder --linux AppImage deb"
+  },
+  "devDependencies": {
+    "electron": "^44.7.0",
+    "electron-builder": "^26.15.3"
+  },
+  "dependencies": {
+    "electron-updater": "^6.6.2"
+  },
+  "build": {
+    "appId": "im.postacim.desktop",
+    "productName": "postacim",
+    "directories": {
+      "output": "dist"
+    },
+    "files": [
+      "src/**",
+      "build/**"
+    ],
+    "linux": {
+      "icon": "build/icon.png",
+      "category": "Network;InstantMessaging;Chat",
+      "target": [
+        {
+          "target": "AppImage",
+          "arch": [
+            "x64"
+          ]
+        },
+        {
+          "target": "deb",
+          "arch": [
+            "x64"
+          ]
+        }
+      ]
+    },
+    "publish": {
+      "provider": "github",
+      "owner": "yucOx",
+      "repo": "postacim-cli"
+    },
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
+      ]
+    },
+    "mac": {
+      "target": [
+        {
+          "target": "dmg",
+          "arch": [
+            "x64",
+            "arm64"
+          ]
+        }
+      ],
+      "identity": null
+    }
+  }
+}
