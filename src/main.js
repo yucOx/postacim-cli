@@ -313,7 +313,13 @@ const SETUP_HTML = `<!doctype html><html><head><meta charset="utf-8"><style>
   button{margin-top:12px;width:100%;padding:10px;border:0;border-radius:6px;
     background:#e8a33d;color:#0b0e13;font-size:14px;font-weight:600;cursor:pointer}
   .err{color:#e35d5d;font-size:12px;margin-top:8px;min-height:14px}
+  .seal{display:block;margin:0 auto 14px;width:56px;height:56px}
 </style></head><body><div class="box">
+  <svg class="seal" viewBox="0 0 32 32" aria-hidden="true">
+    <rect width="32" height="32" rx="6" fill="#0b0e13"/>
+    <circle cx="16" cy="16" r="12.5" fill="none" stroke="#c9a45c" stroke-width="1.6"/>
+    <path fill="#e8a33d" d="M25 10.4c-2.9-1.5-5.6-.9-7.5 1.2l-1.2 1.3-8-1.2-2.7 2.5 6.6 2.2-7.6 6.9 3.2 1 5.3-3.9 1.7 4.9 2.9-1.2-1.2-4.9 3.1-2.6c2.3-1.9 4.3-3.3 5.4-6.2z" transform="translate(1.5 -2) scale(0.92)"/>
+  </svg>
   <h1>postacim</h1>
   <p>Sunucunun adresi ne? (ör. <b>https://posta.example</b> veya LAN'da <b>http://192.168.1.10</b>)</p>
   <input id="u" type="text" placeholder="https://sunucu-adresin" autofocus>
