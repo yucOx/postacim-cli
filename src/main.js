@@ -21,6 +21,11 @@ const __dirname = path.dirname(url.fileURLToPath(import.meta.url));
 const ICON = path.join(__dirname, '..', 'build', 'icon.png');
 const SMOKE = process.argv.includes('--smoke');
 
+/** Sabit dağıtım adresi — Discord modeli: kullanıcıya sunucu sorulmaz,
+ *  uygulama doğrudan buraya bağlanır. Yalnız geliştirme kısayolu:
+ *  POSTACIM_URL ortam değişkeni veya --url= argümanı başka sunucuya yönelir. */
+const PROD_SERVER = 'https://postacim.dev';
+
 // smoke test gerçek kullanıcı yapılandırmasını kirletmesin — config okumadan ÖNCE
 if (SMOKE) {
   app.setPath('userData', path.join(app.getPath('temp'), 'postacim-smoke'));
@@ -65,15 +70,13 @@ function originOf(serverUrl) {
   return new URL(serverUrl).origin;
 }
 
-// env > CLI > kayıtlı. Secure-context muafiyeti switch'i app ready'den
-// ÖNCE yazılmalı → adresi senkron çözüyoruz.
+// Sabit adres önde; POSTACIM_URL / --url= yalnız geliştirme kısayolu.
+// Secure-context muafiyeti switch'i app ready'den ÖNCE yazılmalı → senkron.
 const argUrl = process.argv.find((a) => a.startsWith('--url='))?.slice(6) ?? '';
 const initialConfig = loadConfig();
 const fromEnv = normalizeServer(process.env.POSTACIM_URL ?? '');
 const fromArg = normalizeServer(argUrl);
-const serverUrl = fromEnv || fromArg || normalizeServer(initialConfig.serverUrl ?? '');
-// env/CLI ile verilen adres kalıcı varsayılan olur (bir sonraki açılış da o)
-if ((fromEnv || fromArg) && serverUrl !== initialConfig.serverUrl) saveConfig({ serverUrl });
+const serverUrl = fromEnv || fromArg || normalizeServer(PROD_SERVER);
 
 // LAN http dağıtımı: Chromium bu kaynağı güvenli sayar → getUserMedia,
 // Notification, Document PiP açılır. Muafiyet yalnız kendi sunucu kaynağına.

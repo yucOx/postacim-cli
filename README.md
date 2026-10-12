@@ -54,14 +54,15 @@ koddur (aynı web paketi, aynı libsodium zincirleri).
 cd desktop && npm install && npm start
 ```
 
-Sunucu adresi üç yoldan biriyle belirlenir:
+Uygulama **doğrudan `https://postacim.dev`'e bağlanır** — sunucu adresi
+sorulmaz (Discord modeli). Geliştirme sırasında başka sunucuya yönelmek için:
 
-1. İlk açılışta sorulur ve kaydedilir (kurulum penceresi).
-2. Ortam değişkeni: `POSTACIM_URL=https://sunucu npm start`
-3. Argüman: `npm start -- --url=https://sunucu`
+1. Ortam değişkeni: `POSTACIM_URL=https://sunucu npm start`
+2. Argüman: `npm start -- --url=https://sunucu`
 
-Kayıtlı adres `~/.config/postacim/config.json` içinde tutulur (paketlenmiş
-uygulamada `productName` dizindir; geliştirme modunda `postacim-cli`).
+Pencere konumu gibi tercihler `~/.config/postacim/config.json` içinde
+tutulur (paketlenmiş uygulamada `productName` dizindir; geliştirme modunda
+`postacim-cli`). Sabit adres `src/main.js` içindeki `PROD_SERVER` sabitidir.
 
 ## Paketleme
 
@@ -80,7 +81,7 @@ npm run dist
 ```
 desktop/
 ├── src/main.js       # ana süreç (Electron main)
- ├── src/preload.cjs   # yalnız ilk-kurulum penceresi için postacim.saveServer(url) köprüsü
+ ├── src/preload.cjs   # kaynak seçici + (yedek) kurulum penceresi IPC köprüsü
 └── build/icon.png    # uygulama ikonu
 ```
 
