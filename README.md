@@ -3,8 +3,10 @@
 [English](README.en.md)
 
 postacim masaüstü uygulaması: **Electron sarmalayıcı**. İnce istemcidir —
-tüm uygulama kodu paket içinde gelmez, web uygulaması her açılışta
-**sunucudan yüklenir**. Discord'un masaüstü uygulaması ile aynı model:
+kripto ve arayüz web uygulamasının kendisidir; ama masaüstünde web kodu
+sunucudan indirilmez: pakete gömülü, sha256 manifest'le doğrulanan
+**sabitlenmiş web paketi (pinned web bundle)** üzerinden yüklenir
+(aşağıda). Discord'un masaüstü uygulaması ile aynı model:
 Electron + sabit Chromium, LiveKit/WebRTC açısından öngörülebilir ve
 güvenilir bir ortam verir. Tauri/WebKitGTK alternatifi WebRTC'de
 güvenilmez olduğundan bilinçli olarak tercih edilmedi.
@@ -56,11 +58,48 @@ Pencere konumu gibi tercihler `~/.config/postacim/config.json` içinde
 tutulur (paketlenmiş uygulamada `productName` dizindir; geliştirme modunda
 `postacim-cli`).
 
+## Sabitlenmiş web paketi (pinned web bundle)
+
+Masaüstü uygulaması postacim.dev'in **sayfa varlıklarını** (index.html,
+JS, CSS, fontlar, sesler) sunucudan indirmez: bunlar uygulama paketinin
+içine gömülüdür (`webapp/`) ve her dosyanın sha256 hash'i
+`webapp/manifest.json`'de listelenir. Açılışta yine `https://postacim.dev`
+yüklenir, ama varlık istekleri yerel paketten servis edilir:
+
+- **`/api`, `/ws`, `/livekit`** çağrıları gerçek ağa gider — veri ve
+  sinyal trafiği her zaman sunucudadır.
+- Manifest'te olmayan bir varlık **403** ile engellenir; diskte
+  değiştirilmiş bir dosya sha256 uyuşmazlığından **500** alır.
+- `index.html`'e, web'in nginx conf'undaki politikaya uyarlanmış bir CSP
+  başlığı eklenir.
+
+Güvenlik anlamı: ele geçen sunucu masaüstü istemcisine **değiştirilmiş JS
+basamaz** — ana depodaki "Web JS trust" sınırının masaüstü kapanışı.
+Web istemcisi (tarayıcı) için aynı koruma yoktur; orada manifest
+doğrulaması elle yapılır.
+
+Güncelleme akışı: web kodu değişince yeni masaüstü sürümü gerekir —
+`desktop-v*` etiketi yeni paketi keser.
+
+Üretim:
+
+```bash
+npm run web:embed   # postacim deposundan klon + build → webapp/ + manifest
+```
+
+Varsayılan olarak en son `v*` etiketi gömülür; `POSTACIM_REF=main npm run
+web:embed` ile dal/etiket seçilir, `POSTACIM_GIT_URL` ile klon adresi
+değiştirilir. `webapp/` yoksa (build edilmemiş dev klonu) uygulama uyarı
+verir ve eski davranışla — kodu sunucudan yükleyerek — çalışır.
+
 ## Paketleme
 
 ```bash
 npm run dist
 ```
+
+`dist` öncesinde pinned paket otomatik yeniden üretilir (`predist` →
+`web:embed`).
 
 Çıktı `dist/` altındadır: **AppImage + deb** (x64, Linux). Yerel
 `npm run dist` yalnız Linux üretir; **Windows (nsis kurulum exe)** ve
@@ -71,10 +110,12 @@ npm run dist
 ## İçerik yapısı
 
 ```
+├── scripts/embed-web.sh  # pinned web bundle üretici (klon + build + manifest)
 ├── src/main.js       # ana süreç (Electron main)
 ├── src/picker.html   # ekran paylaşımı kaynak seçici sayfası
 ├── src/preload.cjs   # yalnız kaynak seçici için IPC köprüsü
-└── build/icon.png    # uygulama ikonu
+├── build/icon.png    # uygulama ikonu
+└── webapp/           # gömülü web paketi + manifest (web:embed üretir, git'e girmez)
 ```
 
 ## Bilinen sınırlar
@@ -89,13 +130,18 @@ npm run dist
 - **Otomatik güncelleme** — `electron-updater` bu deponun Releases'ine
   bağlanır; `desktop-v*` etiketli sürümler oradan gelir.
   Uygulama içinden: tepsi → Güncellemeleri denetle.
+- **Web bundle sürüm kayması** — gömülü web paketi, gömüldüğü andaki web
+  kodunu taşır; sunucu API sürümünün gerisine düşebilir. API uyumluluk
+  penceresi geniş tutulur; web kodu değişince yeni uygulama sürümü
+  (`desktop-v*` etiketi) gerekir.
 
 ## Gizlilik notu
 
-Masaüstü kabuğu mesaj içeriğine **dokunmaz**; E2EE tarayıcıdakiyle aynıdır —
-sunucudan yüklenen aynı web kodu çalışır. Kabuğun eklediği şey yalnızca
-yukarıdaki masaüstü kolaylıklarıdır; şifreleme, anahtar türetimi ve anahtar
-saklama tamamen web uygulamasındaki mantıkla, sunucu kaynağından gelen
-kodda gerçekleşir. Sunucu değişirse (JS trust sınırı) masaüstü istemcisi de
-tarayıcı kadar etkilenir — bkz. ana depodaki
+Masaüstü kabuğu mesaj içeriğine **dokunmaz**; E2EE tarayıcıdakiyle aynı
+koddur — pakete gömülü, sha256 ile doğrulanan aynı web paketi çalışır.
+Kabuğun eklediği şey yalnızca yukarıdaki masaüstü kolaylıklarıdır;
+şifreleme, anahtar türetimi ve anahtar saklama tamamen web uygulamasındaki
+mantıkla, sabitlenmiş paketteki kodda gerçekleşir. Sunucu ele geçse bile
+masaüstü istemcisinin çalıştırdığı JS değişemez (bkz. "Sabitlenmiş web
+paketi"); tarayıcı istemcisi için aynı güvence yoktur — bkz. ana depodaki
 [JS integrity doğrulaması](https://github.com/yucOx/postacim).

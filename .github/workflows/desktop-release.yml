@@ -18,6 +18,12 @@ jobs:
           cache: npm
           cache-dependency-path: package-lock.json
       - run: npm ci
+      # Pinned web bundle: postacim private olduğu sürece klon adımı
+      # başarısız olabilir — kapatmak için repo variables'a EMBED_WEB=skip
+      # yaz; postacim public olduğunda bayrağa gerek kalmaz.
+      - name: Web paketini göm (pinned bundle)
+        if: vars.EMBED_WEB != 'skip'
+        run: npm run web:embed
       - run: npx electron-builder --linux AppImage deb --publish never
       - uses: actions/upload-artifact@v4
         with:
@@ -50,6 +56,10 @@ jobs:
           cache: npm
           cache-dependency-path: package-lock.json
       - run: npm ci
+      # Pinned web bundle — kapatmak için repo variables'a EMBED_WEB=skip.
+      - name: Web paketini göm (pinned bundle)
+        if: vars.EMBED_WEB != 'skip'
+        run: npm run web:embed
       - run: npx electron-builder --win nsis --publish never
       - uses: actions/upload-artifact@v4
         with:
@@ -79,6 +89,10 @@ jobs:
           cache: npm
           cache-dependency-path: package-lock.json
       - run: npm ci
+      # Pinned web bundle — kapatmak için repo variables'a EMBED_WEB=skip.
+      - name: Web paketini göm (pinned bundle)
+        if: vars.EMBED_WEB != 'skip'
+        run: npm run web:embed
       - run: npx electron-builder --mac dmg --x64 --arm64 --publish never
         env:
           CSC_IDENTITY_AUTO_DISCOVERY: false

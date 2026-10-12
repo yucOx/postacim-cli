@@ -1,7 +1,8 @@
 // postacim masaüstü — Electron sarmalayıcı.
 //
-// Model: ince istemci. Web uygulaması sunucudan yüklenir (aynı E2EE kodu,
-// aynı oturum); bu kabuğun işi tarayıcının yapamadıkları:
+// Model: ince istemci + pinned web bundle. Web uygulaması pakete gömülü
+// olarak gelir ve sha256 manifest'le doğrulanarak yüklenir (aynı E2EE
+// kodu, aynı oturum); bu kabuğun işi tarayıcının yapamadıkları:
 //  - sunucu adresi yapılandırması (ilk açılışta sor, userData'ya kaydet)
 //  - http (LAN) dağıtımlarında secure-context muafiyeti → mikrofon/kamera/
 //    bildirim/pencere-içi-pencere tarayıcı kısıtı olmadan çalışır
@@ -11,8 +12,9 @@
 //
 // Discord ile aynı tercih: Electron + sabit Chromium. Tauri/WebKitGTK
 // yolunda WebRTC (LiveKit) güvenilir değil.
-import { app, BrowserWindow, Menu, Tray, desktopCapturer, dialog, ipcMain, nativeImage, shell } from 'electron';
+import { app, BrowserWindow, Menu, Tray, desktopCapturer, dialog, ipcMain, nativeImage, session, shell } from 'electron';
 import updaterPkg from 'electron-updater';
+import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import url from 'node:url';
@@ -79,6 +81,117 @@ const serverUrl = normalizeServer(PROD_SERVER);
 // Notification, Document PiP açılır. Muafiyet yalnız kendi sunucu kaynağına.
 if (serverUrl.startsWith('http://')) {
   app.commandLine.appendSwitch('unsafely-treat-insecure-origin-as-secure', originOf(serverUrl));
+}
+
+// her sunucu kendi kalıcı partition'ında → oturum/E2EE anahtarları karışmaz;
+// pinned https kesmesi de bu partition'ın oturumuna kurulur (aşağıda)
+const PARTITION = `persist:${originOf(serverUrl).replace(/[^a-z0-9]+/gi, '-').toLowerCase()}`;
+
+// ---------- pinned web bundle ----------
+//
+// postacim.dev'in SAYFA varlıkları (index.html, JS, CSS, font…) paket
+// içinden: webapp/ + manifest.json (npm run web:embed üretir). Sunucudan
+// yalnız /api, /ws, /livekit gider — ele geçen sunucu masaüstü istemcisine
+// değiştirilmiş JS basamaz. Manifest'te olmayan varlık 403; disk üstünde
+// değişmiş dosya sha256 uyuşmazlığından 500. webapp/ yoksa (build
+// edilmemiş dev klonu) kesme kurulmaz, yükleme eskisi gibi sunucudan.
+const WEBAPP = path.join(__dirname, '..', 'webapp');
+const MANIFEST = fs.existsSync(path.join(WEBAPP, 'manifest.json'))
+  ? JSON.parse(fs.readFileSync(path.join(WEBAPP, 'manifest.json'), 'utf8'))
+  : null;
+/** veri/sinyal yolları — bunlar gerçek ağa iner */
+const PINNED_PASS = ['/api', '/ws', '/livekit'];
+/** index.html'e eklenen CSP — web'in nginx conf'undaki politikanın masaüstü
+ *  uyarlaması (wss + sabit sunucu adresi). wasm-unsafe-eval şart: hash-wasm
+ *  (Argon2id) ve libsodium tarayıcıda WASM derliyor (bkz. web/src/csp.test.ts);
+ *  Turnstile origin'leri de nginx'teki gibi önceden açık. */
+const PINNED_CSP =
+  "default-src 'self'; " +
+  "script-src 'self' 'wasm-unsafe-eval' https://challenges.cloudflare.com; " +
+  "style-src 'self' 'unsafe-inline'; " +
+  "img-src 'self' data: blob:; " +
+  "media-src 'self' blob:; " +
+  "worker-src 'self' blob:; " +
+  "connect-src 'self' wss: https://postacim.dev https://challenges.cloudflare.com; " +
+  "frame-src https://challenges.cloudflare.com; " +
+  "object-src 'none'; base-uri 'self'; frame-ancestors 'none'; form-action 'self'; " +
+  "require-trusted-types-for 'script'; trusted-types e2ee-worker";
+/** dist içinde çıkan uzantılar → content-type (net.fetch yerine kendimiz
+ *  sarmaladığımız için manuel; bilinmeyen uzantı octet-stream düşer) */
+const PINNED_MIME = {
+  '.html': 'text/html; charset=utf-8',
+  '.js': 'text/javascript; charset=utf-8',
+  '.css': 'text/css; charset=utf-8',
+  '.json': 'application/json; charset=utf-8',
+  '.svg': 'image/svg+xml',
+  '.png': 'image/png',
+  '.jpg': 'image/jpeg',
+  '.ico': 'image/x-icon',
+  '.woff': 'font/woff',
+  '.woff2': 'font/woff2',
+  '.ttf': 'font/ttf',
+  '.otf': 'font/otf',
+  '.map': 'application/json; charset=utf-8',
+  '.txt': 'text/plain; charset=utf-8',
+  '.mp3': 'audio/mpeg',
+  '.ogg': 'audio/ogg',
+  '.wav': 'audio/wav',
+  '.webm': 'video/webm',
+};
+
+/** paket dosyasını sha256 ile doğrulayıp döndür — dosyalar küçük, her
+ *  istekte hash'lemek kabul. Disk değişmişse 500 + log. */
+function servePinnedFile(entry) {
+  const file = path.join(WEBAPP, entry.path.slice(1));
+  let buf;
+  try {
+    buf = fs.readFileSync(file);
+  } catch {
+    console.error(`[pinned] okunamadı: ${entry.path}`);
+    return new Response('pinned varlığı okunamadı', { status: 500 });
+  }
+  const sha = crypto.createHash('sha256').update(buf).digest('hex');
+  if (sha !== entry.sha256) {
+    console.error(`[pinned] sha256 uyuşmazlığı (disk değişmiş?): ${entry.path}`);
+    return new Response('pinned varlık doğrulanamadı', { status: 500 });
+  }
+  const headers = {
+    'Content-Type': PINNED_MIME[path.extname(entry.path).toLowerCase()] ?? 'application/octet-stream',
+  };
+  if (entry.path === '/index.html') headers['Content-Security-Policy'] = PINNED_CSP;
+  return new Response(buf, { headers });
+}
+
+/** https kesmesi — pencerenin oturumuna kurulur (global protocol.handle
+ *  custom partition'ları kapsamaz; pencere PARTITION ile açılır). Varlık
+ *  istekleri webapp/'ten; /api, /ws, /livekit ve öteki https trafiği gerçek
+ *  ağa. net/ses.fetch protocol handler'lardan geçmez + bypass bayrağı →
+ *  özyineleme yok. */
+function wirePinnedWeb(ses) {
+  const pinnedHost = new URL(serverUrl).hostname;
+  const deniedLogged = new Set();
+  ses.protocol.handle('https', (req) => {
+    let u;
+    try {
+      u = new URL(req.url);
+    } catch {
+      return ses.fetch(req, { bypassCustomProtocolHandlers: true, duplex: 'half' });
+    }
+    if (u.hostname === pinnedHost && !PINNED_PASS.some((p) => u.pathname.startsWith(p))) {
+      const rel = u.pathname === '/' ? '/index.html' : u.pathname;
+      const entry = MANIFEST.files.find((f) => f.path === rel);
+      if (!entry) {
+        if (!deniedLogged.has(rel)) {
+          deniedLogged.add(rel);
+          console.warn(`[pinned] 403 (manifest dışı varlık): ${rel}`);
+        }
+        return new Response('engellendi: pinned manifest dışı varlık', { status: 403 });
+      }
+      return servePinnedFile(entry);
+    }
+    return ses.fetch(req, { bypassCustomProtocolHandlers: true, duplex: 'half' });
+  });
+  console.log(`[pinned] web bundle aktif: ${MANIFEST.files.length} dosya, host ${pinnedHost}`);
 }
 
 // ---------- tek örnek ----------
@@ -274,6 +387,14 @@ async function bootstrap() {
 
   await app.whenReady();
 
+  // pinned mod: https kesmesi pencere açılmadan ÖNCE oturuma kurulur.
+  // webapp/ yoksa kesme yok — dev klonunda yükleme eskisi gibi sunucudan.
+  if (MANIFEST) {
+    wirePinnedWeb(session.fromPartition(PARTITION));
+  } else {
+    console.warn('[pinned] webapp/ yok — pinned mod kapalı (npm run web:embed)');
+  }
+
   if (!serverUrl) {
     // PROD_SERVER boş/bozuk — yanlış yapılandırma: kullanıcıya söyle, çık
     await dialog.showMessageBox({
@@ -300,7 +421,7 @@ async function bootstrap() {
 
 function createMainWindow() {
   const bounds = initialConfig.bounds ?? { width: 1280, height: 800 };
-  const origin = originOf(serverUrl);
+  const origin = originOf(serverUrl); // izin/dış bağlantı denetimlerinde
 
   win = new BrowserWindow({
     width: bounds.width,
@@ -317,7 +438,7 @@ function createMainWindow() {
       preload: path.join(__dirname, 'preload.cjs'),
       // her sunucu kendi kalıcı partition'ında — oturum çerezi + E2EE
       // localStorage farklı sunucular arasında asla karışmaz
-      partition: `persist:${origin.replace(/[^a-z0-9]+/gi, '-').toLowerCase()}`,
+      partition: PARTITION,
       contextIsolation: true,
       nodeIntegration: false,
       spellcheck: false,
